@@ -1,0 +1,2 @@
+# requests is already installed (used by ipo.py parsers)
+requests>=2.28

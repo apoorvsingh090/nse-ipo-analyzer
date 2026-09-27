@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test / cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local runtime data (rebuild with: python -m nse_ipo_analyzer.scripts.seed)
+data/*.db
+data/*.log
+data/_probe_*
+*.log
+server.log
+server.err.log
+
+# Trained artifacts (rebuild with: POST /models/train)
+ml/artifacts/*.pkl
+ml/artifacts/backtest.json
+ml/artifacts/meta.json
+
+# Secrets / local env
+.env
+.env.local
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

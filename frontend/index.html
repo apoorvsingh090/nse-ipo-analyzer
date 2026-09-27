@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NSE IPO Analyzer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>body{font-family:Inter,system-ui,sans-serif} .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px} .lbl{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em} .val{font-size:20px;font-weight:700} .src{font-size:11px;color:#6b7280}</style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<div class="max-w-7xl mx-auto p-4">
+  <header class="flex flex-wrap items-center gap-3 mb-4">
+    <h1 class="text-2xl font-extrabold">NSE IPO Analyzer</h1>
+    <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Indian Mainboard + SME · NSE/BSE</span>
+    <select id="ipoSel" class="ml-auto border rounded px-3 py-2 text-sm"></select>
+    <button onclick="analyze()" class="bg-blue-600 text-white px-4 py-2 rounded text-sm">Analyze</button>
+    <button onclick="refresh()" class="bg-slate-600 text-white px-4 py-2 rounded text-sm">Refresh</button>
+    <button onclick="fetchLive()" class="bg-green-600 text-white px-4 py-2 rounded text-sm">Fetch live IPOs</button>
+  </header>
+  <div id="livePanel" class="hidden mb-3 card"><div class="lbl">Live upcoming IPOs — Official NSE data <span id="liveAsof" class="src"></span></div><div id="liveList" class="text-sm grid md:grid-cols-2 gap-2 mt-2"></div></div>
+  <div id="warn" class="hidden mb-3 text-sm bg-amber-50 border border-amber-300 rounded p-3"></div>
+
+  <section class="grid md:grid-cols-4 gap-3 mb-3">
+    <div class="card"><div class="lbl">Company / IPO</div><div id="cName" class="val text-base">—</div><div id="cMeta" class="src">—</div></div>
+    <div class="card"><div class="lbl">Price band / Issue price</div><div id="cPrice" class="val">—</div><div id="cSize" class="src">—</div></div>
+    <div class="card"><div class="lbl">Lot size / Min investment</div><div id="cLot" class="val">—</div><div id="cDates" class="src">—</div></div>
+    <div class="card"><div class="lbl">Expected listing gain (base)</div><div id="cGain" class="val text-green-700">—</div><div id="cCI" class="src">—</div></div>
+  </section>
+
+  <section class="grid md:grid-cols-3 gap-3 mb-3">
+    <div class="card"><div class="lbl">Valuation</div><div id="valuation" class="text-sm">—</div></div>
+    <div class="card"><div class="lbl">Financials (growth / returns / cash)</div><div id="financials" class="text-sm">—</div></div>
+    <div class="card"><div class="lbl">Demand (QIB / NII / Retail / Total + GMP)</div><div id="demand" class="text-sm">—</div></div>
+  </section>
+
+  <section class="grid md:grid-cols-2 gap-3 mb-3">
+    <div class="card"><div class="lbl">Listing estimate — Bear / Base / Bull</div><div id="bbb" class="text-sm">—</div><div id="drivers" class="text-xs mt-2 text-slate-600">—</div><div id="gmpChart"></div></div>
+    <div class="card"><div class="lbl">Subscription progression</div><div id="subChart"></div></div>
+  </section>
+
+  <section class="grid md:grid-cols-2 gap-3 mb-3">
+    <div class="card"><div class="lbl">Evidence FOR subscription</div><ul id="evFor" class="text-sm list-disc ml-5"></ul></div>
+    <div class="card"><div class="lbl">Evidence AGAINST + Key risks / Red flags</div><ul id="evAgainst" class="text-sm list-disc ml-5"></ul><div id="risks" class="text-xs mt-2"></div></div>
+  </section>
+
+  <section class="card mb-3"><div class="lbl">Pillars (Fundamentals · Valuation · Structure · Demand · Market · Risks)</div><div id="pillars" class="text-sm grid md:grid-cols-3 gap-2"></div></section>
+  <section class="card mb-3"><div class="lbl">Source documents & provenance (§26) — click any number to trace</div><div id="sources" class="text-xs"></div><div id="narr" class="text-xs mt-2 text-slate-600"></div></section>
+</div>
+<script>
+let IPOS=[];
+async function loadList(){
+  const r=await fetch('/ipos'); IPOS=await r.json();
+  const sel=document.getElementById('ipoSel');
+  sel.innerHTML=IPOS.map(o=>`<option value="${o.id}">${o.company_name} (${o.status})</option>`).join('');
+  if(IPOS.length){await analyze();}
+}
+function fmt(x,d=1){return (x===null||x===undefined)?'Data unavailable':Number(x).toFixed(d);}
+async function analyze(){
+  const id=document.getElementById('ipoSel').value; if(!id)return;
+  const r=await fetch(`/ipos/${id}/analyze`,{method:'POST'}); const d=await r.json();
+  const ipo=d.ipo||{};
+  document.getElementById('cName').textContent=ipo.company_name||'—';
+  document.getElementById('cMeta').textContent=`${ipo.segment||''} · ${ipo.sector||''} · ${ipo.status||''} · Listing: ${ipo.listing_date||'TBA'}`;
+  document.getElementById('cPrice').textContent=`₹${ipo.price_band_low}-₹${ipo.price_band_high} (issue ₹${ipo.issue_price??'—'})`;
+  document.getElementById('cSize').textContent=`Size ₹${ipo.issue_size_cr} cr (Fresh ₹${ipo.fresh_issue_cr} cr / OFS ₹${ipo.ofs_cr} cr) · Official exchange data`;
+  document.getElementById('cLot').textContent=`Lot ${ipo.lot_size??'—'} · Min ₹${ipo.min_investment??'—'}`;
+  document.getElementById('cDates').textContent=`Open ${ipo.open_date||'?'} → Close ${ipo.close_date||'?'} · Company/SEBI filing`;
+  const p=d.prediction||{};
+  document.getElementById('cGain').textContent=(p.base?`${p.base.gain_pct}% @ ₹${p.base.price}`:(p.expected_gain_pct??'—')+'%');
+  document.getElementById('cCI').textContent=`CI ${p.ci_low_pct}% … ${p.ci_high_pct}% · Confidence ${p.confidence||'—'} · Model ${p.model_version||''}`;
+  const v=d.valuation||{}, vs=d.valuation_vs_peers||{};
+  const dash=x=>(x===null||x===undefined)?'Data unavailable':x;
+  document.getElementById('valuation').innerHTML=`Mcap <b>${v.market_cap_cr?'₹'+v.market_cap_cr+' cr':'Data unavailable'}</b> · EV <b>${v.enterprise_value_cr?'₹'+v.enterprise_value_cr+' cr':'Data unavailable'}</b><br>P/E <b>${dash(v.pe)}</b> · EV/EBITDA <b>${dash(v.ev_ebitda)}</b> · P/S <b>${dash(v.ps)}</b> · P/B <b>${dash(v.pb)}</b><br>Peer median P/E <b>${dash((vs.pe||{}).peer_median)}</b> · Premium/discount <b>${(vs.pe||{}).premium_discount_pct??'Data unavailable'}${(vs.pe||{}).premium_discount_pct!=null?'%':''}</b><br><span class="src">${vs.verdict||'Multiples need PAT/EPS — parse the RHP or re-import for Chittorgarh restated financials.'}</span>`;
+  const fq=d.financial_quality||{}, g=d.growth||{};
+  const comps=Object.entries(fq.components||{}).filter(([k,val])=>val!=null);
+  document.getElementById('financials').innerHTML=`Rev CAGR <b>${dash((g.revenue||{}).cagr_3y_pct)}${(g.revenue||{}).cagr_3y_pct!=null?'%':''}</b> · PAT CAGR <b>${dash((g.pat||{}).cagr_3y_pct)}${(g.pat||{}).cagr_3y_pct!=null?'%':''}</b> · ROE <b>${dash(v.roe)}${v.roe!=null?'%':''}</b> · ROCE <b>${dash(v.roce)}${v.roce!=null?'%':''}</b><br>Quality total <b>${dash(fq.total)}</b>${comps.length?' ('+comps.map(([k,val])=>k+' '+val).join(', ')+')':' <span class="src">— no financials yet; parse the RHP or re-import</span>'}<br><span class="src">${(d.cash_flags||[]).join('<br>')||'Cash conversion OK'}</span>`;
+  const dem=(d.demand||{}).latest||{}, gm=d.gmp||{};
+  const splitNote=(dem.qib_x==null&&dem.total_x!=null)?'<br><span class="src">NSE publishes Total only — category splits Data unavailable</span>':'';
+  document.getElementById('demand').innerHTML=`QIB <b>${dash(dem.qib_x)}${dem.qib_x!=null?'x':''}</b> · NII <b>${dash(dem.nii_x)}${dem.nii_x!=null?'x':''}</b> · Retail <b>${dash(dem.retail_x)}${dem.retail_x!=null?'x':''}</b> · Total <b>${dash(dem.total_x)}${dem.total_x!=null?'x':''}</b><br>GMP <b>${gm.latest_gmp!=null?'₹'+gm.latest_gmp:'Data unavailable'}</b> (${gm.momentum||'—'}) · Implied ${gm.implied_listing_price!=null?'₹'+gm.implied_listing_price:'Data unavailable'}${splitNote}<br><span class="src">${gm.disclaimer||''}</span>`;
+  document.getElementById('bbb').innerHTML=`Bear <b>₹${(p.bear||{}).price} (${(p.bear||{}).gain_pct}%)</b> · Base <b>₹${(p.base||{}).price} (${(p.base||{}).gain_pct}%)</b> · Bull <b>₹${(p.bull||{}).price} (${(p.bull||{}).gain_pct}%)</b><br><span class="src">${p.note||''}</span>`;
+  document.getElementById('drivers').textContent='Drivers: '+((p.drivers||{}).top_lines||[]).join(' · ');
+  const a=d.assessment||{};
+  document.getElementById('evFor').innerHTML=(a.evidence_for||[]).map(x=>`<li>${x}</li>`).join('')||'<li>—</li>';
+  document.getElementById('evAgainst').innerHTML=(a.evidence_against||[]).map(x=>`<li>${x}</li>`).join('')||'<li>—</li>';
+  document.getElementById('risks').innerHTML='<b>Top risks:</b><br>'+(d.risks||[]).slice(0,5).map(r=>`• [${r.category}/${r.severity}] ${r.description} <span class="src">(${r.source_doc} p.${r.source_page})</span>`).join('<br>')+'<br><b>Red flags:</b><br>'+(d.red_flags||[]).map(r=>`• ${r.rule}: ${r.evidence}`).join('<br>');
+  document.getElementById('pillars').innerHTML=Object.entries(a.pillars||{}).map(([k,v])=>`<div class="border rounded p-2"><b>${k}</b>: ${v.score}<br>${v.summary}</div>`).join('');
+  document.getElementById('narr').textContent=d.narrative||'';
+  const sr=await (await fetch(`/ipos/${id}/sources`)).json();
+  document.getElementById('sources').innerHTML=(sr.provenance||[]).map(p=>`${p.year}: ${p.source} · ${p.doc} p.${p.page}`).join('<br>')||'Provenance recorded per metric (§26).';
+  // charts
+  const prog=(d.demand||{}).progression||[];
+  if(prog.length){Plotly.newPlot('subChart',[{x:prog.map(x=>x.at||x.day),y:prog.map(x=>x.total),name:'Total'},{x:prog.map(x=>x.at||x.day),y:prog.map(x=>x.qib),name:'QIB'},{x:prog.map(x=>x.at||x.day),y:prog.map(x=>x.retail),name:'Retail'}],{margin:{t:20},height:260});}
+  const gh=(gm.history||[]);
+  if(gh.length){Plotly.newPlot('gmpChart',[{x:gh.map(x=>x.at),y:gh.map(x=>x.gmp),name:'GMP'}],{margin:{t:20},height:220,title:'GMP trend (unofficial)'});}
+  const w=document.getElementById('warn');
+  if(p.error){w.classList.remove('hidden');w.textContent=p.error+' '+ (p.note||'');}else{w.classList.add('hidden');}
+}
+async function refresh(){const id=document.getElementById('ipoSel').value;await fetch(`/ipos/${id}/refresh`,{method:'POST'});await analyze();}
+async function fetchLive(){
+  const p=document.getElementById('livePanel'),l=document.getElementById('liveList');
+  p.classList.remove('hidden');l.innerHTML='Fetching live NSE data…';
+  const r=await fetch('/live/upcoming?enrich=true');const d=await r.json();
+  document.getElementById('liveAsof').textContent='as of '+d.asof;
+  l.innerHTML=(d.records||[]).map(x=>`<div class="border rounded p-2"><b>${x.company_name}</b> (${x.symbol||'—'} · ${x.segment})<br>₹${x.price_band_low??'?'}-₹${x.price_band_high??'?'} · ${x.open_date||'?'} → ${x.close_date||'?'} · Sub ${x.total_sub_x??'—'}x<br><span class="src">${x.enrichment||''}</span> <button onclick="importIPO('${x.symbol||''}')" class="ml-2 bg-green-600 text-white px-2 py-1 rounded text-xs">Import</button></div>`).join('')||'Data unavailable';
+}
+async function importIPO(sym){
+  const r=await fetch('/ipos/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym})});
+  const d=await r.json();
+  await loadList();
+  if(d.ipo_id){document.getElementById('ipoSel').value=d.ipo_id;await analyze();}
+}
+loadList();
+</script>
+</body>
+</html>
