@@ -99,6 +99,23 @@ subscription snapshot. `/live/gmp` renders investorgain's table via
 Playwright for unofficial GMP (reuses `ipo.py` parsers). Anything unreachable
 is `Data unavailable` — see `tests/test_live.py` (offline fixtures).
 
+## Deploy to Render (free)
+
+The repo includes `Dockerfile` (+`.dockerignore`) and `render.yaml`.
+On boot the app auto-seeds an empty DB and auto-trains a missing model
+(`AUTO_SEED=1`; set `0` to disable), so ephemeral free-tier disks recover
+by themselves. Playwright browsers are deliberately not installed in the
+image — live GMP degrades to `Data unavailable` instead of crashing.
+
+1. Push this repo to GitHub (done: `apoorvsingh090/nse-ipo-analyzer`).
+2. At [render.com](https://render.com) → New → **Blueprint** → select the repo.
+   Render reads `render.yaml` (Docker, free plan, health check `/health`).
+3. Open the issued `https://<name>.onrender.com` URL. First boot takes a few
+   minutes (image build + seed + train); free instances sleep when idle and
+   wake in ~30–60s.
+4. Optional: attach free Postgres (Neon/Supabase) as `DATABASE_URL` in the
+   Render dashboard so imported IPOs survive restarts.
+
 ## API (§24)
 
 | Method | Endpoint | Notes |

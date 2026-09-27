@@ -1,0 +1,15 @@
+# Render Blueprint — free tier (https://render.com/docs/blueprint-spec)
+services:
+  - type: web
+    name: nse-ipo-analyzer
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: AUTO_SEED
+        value: 1
+      # Optional: free Postgres (Neon/Supabase) so data survives restarts.
+      # - key: DATABASE_URL
+      #   sync: false

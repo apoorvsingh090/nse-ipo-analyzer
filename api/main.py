@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,13 +16,66 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ..config import DATA_UNAVAILABLE
+from ..config import DATA_UNAVAILABLE, MODEL_DIR
 from ..database import (IPO, IPOAnchor, IPODocument, IPOFinancial, IPOGMP,
                         IPOMarketData, IPOPrediction, IPORisk, IPOSubscription,
                         IPOValuation, Peer, get_session_factory, init_db)
 from .service import build_report, llm_summary, persist_prediction
 
-app = FastAPI(title="NSE IPO Analyzer", version="1.1.0")
+log = logging.getLogger(__name__)
+
+HIST_CSV = Path(__file__).resolve().parent.parent / "data" / "historical_ipos.csv"
+
+
+def train_from_history() -> dict:
+    """Train listing model on bundled history + walk-forward backtest."""
+    from ..ml.features import FEATURES
+    from ..ml.train import backtest_report, train_final
+    df = pd.read_csv(HIST_CSV, parse_dates=["listing_date"])
+    df["ofs_pct"] = df["ofs_cr"] / df["issue_size_cr"] * 100
+    df["fresh_pct"] = df["fresh_issue_cr"] / df["issue_size_cr"] * 100
+    df["gmp_slope"] = 0.0
+    df["debt_equity"] = df["debt_equity"].fillna(0.5)
+    for c in FEATURES:
+        if c not in df.columns:
+            df[c] = 0.0
+    meta = train_final(df)
+    rep = backtest_report(df)
+    (MODEL_DIR / "backtest.json").write_text(json.dumps(rep, indent=2, default=str))
+    return {"meta": meta, "rep": rep}
+
+
+def ensure_bootstrapped() -> dict:
+    """Seed empty DB + train missing model. For ephemeral free-tier disks."""
+    init_db()
+    s = get_session_factory()()
+    seeded = False
+    try:
+        if s.query(IPO).count() == 0:
+            from ..scripts.seed import seed, seed_example
+            seed()
+            seed_example()
+            seeded = True
+    finally:
+        s.close()
+    trained = False
+    if not (MODEL_DIR / "meta.json").exists():
+        train_from_history()
+        trained = True
+    return {"seeded": seeded, "trained": trained}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if os.environ.get("AUTO_SEED", "1") == "1":
+        try:
+            log.info("bootstrap: %s", ensure_bootstrapped())
+        except Exception as e:  # never block startup on bootstrap failure
+            log.warning("bootstrap failed: %s", e)
+    yield
+
+
+app = FastAPI(title="NSE IPO Analyzer", version="1.2.0", lifespan=lifespan)
 FRONT = Path(__file__).resolve().parent.parent / "frontend"
 
 
@@ -213,23 +269,9 @@ def model_performance():
 
 @app.post("/models/train")
 def train_model():
-    from ..config import MODEL_DIR
-    from ..ml.features import FEATURES
-    from ..ml.train import backtest_report, train_final
-    csv = Path(__file__).resolve().parent.parent / "data" / "historical_ipos.csv"
-    df = pd.read_csv(csv, parse_dates=["listing_date"])
-    # derive ofs/fresh %, gmp slope placeholder, medians for NaNs
-    df["ofs_pct"] = df["ofs_cr"] / df["issue_size_cr"] * 100
-    df["fresh_pct"] = df["fresh_issue_cr"] / df["issue_size_cr"] * 100
-    df["gmp_slope"] = 0.0
-    df["debt_equity"] = df["debt_equity"].fillna(0.5)
-    for c in FEATURES:
-        if c not in df.columns:
-            df[c] = 0.0
-    meta = train_final(df)
-    rep = backtest_report(df)
-    (MODEL_DIR / "backtest.json").write_text(json.dumps(rep, indent=2, default=str))
-    return {"meta": meta, "walk_forward": rep.get("walk_forward"),
+    out = train_from_history()
+    rep = out["rep"]
+    return {"meta": out["meta"], "walk_forward": rep.get("walk_forward"),
             "segments": {k: v for k, v in rep.items() if k in ("mainboard", "sme", "all")}}
 
 

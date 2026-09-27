@@ -1,0 +1,10 @@
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*.db
+server*.log
+ml/artifacts/*.pkl
+ml/artifacts/backtest.json
+ml/artifacts/meta.json
+.env

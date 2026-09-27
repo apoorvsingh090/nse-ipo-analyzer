@@ -46,6 +46,24 @@ def test_pdf_parser_missing_file():
     assert res.errors  # logged, not fabricated
 
 
+def test_bootstrap_seeds_empty_db(tmp_path, monkeypatch):
+    import nse_ipo_analyzer.api.main as main
+    import nse_ipo_analyzer.database as db
+    url = f"sqlite:///{(tmp_path / 'boot.db').as_posix()}"
+    monkeypatch.setattr(db, "DATABASE_URL", url)
+    out = main.ensure_bootstrapped()
+    assert out["seeded"] is True and out["trained"] is False  # artifacts exist
+    Session = db.get_session_factory(url)
+    s = Session()
+    try:
+        from nse_ipo_analyzer.database import IPO
+        assert s.query(IPO).count() >= 43
+    finally:
+        s.close()
+    out2 = main.ensure_bootstrapped()
+    assert out2["seeded"] is False  # idempotent
+
+
 def test_api_endpoints(tmp_path, monkeypatch):
     url, eid = _seeded_client(tmp_path)
     import nse_ipo_analyzer.database as db
