@@ -49,10 +49,18 @@ def test_pdf_parser_missing_file():
 def test_bootstrap_seeds_empty_db(tmp_path, monkeypatch):
     import nse_ipo_analyzer.api.main as main
     import nse_ipo_analyzer.database as db
+    import nse_ipo_analyzer.ml.train as train_mod
     url = f"sqlite:///{(tmp_path / 'boot.db').as_posix()}"
     monkeypatch.setattr(db, "DATABASE_URL", url)
+    # Isolate model artifacts: a fresh checkout has none, and the suite must
+    # not write trained pickles into the source tree.
+    model_dir = tmp_path / "artifacts"
+    model_dir.mkdir()
+    monkeypatch.setattr(main, "MODEL_DIR", model_dir)
+    monkeypatch.setattr(train_mod, "MODEL_DIR", model_dir)
     out = main.ensure_bootstrapped()
-    assert out["seeded"] is True and out["trained"] is False  # artifacts exist
+    assert out["seeded"] is True and out["trained"] is True  # nothing pre-exists
+    assert (model_dir / "meta.json").exists()
     Session = db.get_session_factory(url)
     s = Session()
     try:
@@ -61,7 +69,7 @@ def test_bootstrap_seeds_empty_db(tmp_path, monkeypatch):
     finally:
         s.close()
     out2 = main.ensure_bootstrapped()
-    assert out2["seeded"] is False  # idempotent
+    assert out2["seeded"] is False and out2["trained"] is False  # idempotent
 
 
 def test_api_endpoints(tmp_path, monkeypatch):

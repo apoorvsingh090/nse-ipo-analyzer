@@ -36,9 +36,13 @@ def _metrics(y, p) -> dict:
 
 def walk_forward(df: pd.DataFrame, target: str = "listing_gain_pct",
                  min_train: int = 15, step: int = 5) -> dict:
-    """Expanding-window evaluation sorted by listing_date."""
+    """Expanding-window evaluation sorted by listing_date.
+
+    Imputation medians come from the train fold only — full-sample
+    statistics would leak test-fold information into training.
+    """
     df = df.sort_values("listing_date").reset_index(drop=True)
-    X = df[FEATURES].fillna(df[FEATURES].median()).values
+    feats = df[FEATURES]
     y = df[target].values
     preds = {"linear": [], "rf": [], "gbr": []}
     idx = []
@@ -46,13 +50,16 @@ def walk_forward(df: pd.DataFrame, target: str = "listing_gain_pct",
         tr, te = slice(0, end), slice(end, min(end + step, len(df)))
         if te.stop - te.start == 0:
             break
-        m1 = LinearRegression().fit(X[tr], y[tr])
+        med = feats.iloc[tr].median()
+        Xtr = feats.iloc[tr].fillna(med).values
+        Xte = feats.iloc[te].fillna(med).values
+        m1 = LinearRegression().fit(Xtr, y[tr])
         m2 = RandomForestRegressor(n_estimators=200, min_samples_leaf=3,
-                                   random_state=7, n_jobs=-1).fit(X[tr], y[tr])
-        m3 = GradientBoostingRegressor(random_state=7).fit(X[tr], y[tr])
-        preds["linear"].extend(m1.predict(X[te]))
-        preds["rf"].extend(m2.predict(X[te]))
-        preds["gbr"].extend(m3.predict(X[te]))
+                                   random_state=7, n_jobs=-1).fit(Xtr, y[tr])
+        m3 = GradientBoostingRegressor(random_state=7).fit(Xtr, y[tr])
+        preds["linear"].extend(m1.predict(Xte))
+        preds["rf"].extend(m2.predict(Xte))
+        preds["gbr"].extend(m3.predict(Xte))
         idx.extend(range(te.start, te.stop))
     yt = y[idx]
     return {m: {"idx": idx, **_metrics(yt, preds[m])} for m in preds}
