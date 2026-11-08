@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from ..analysis.comparables import find_comparables
 from ..analysis.demand import anchor_summary, gmp_assessment, subscription_table
 from ..analysis.financials import (analyze_growth, cash_conversion_flags,
                                    financial_quality_score)

@@ -7,6 +7,7 @@ observed_at for full provenance (§26).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text,
@@ -289,19 +290,36 @@ class DataSource(Base, TimestampMixin):
     notes = Column(Text)
 
 
-def get_engine(url: str | None = None):
-    url = url or DATABASE_URL
+@lru_cache(maxsize=8)
+def _engine_for(url: str):
+    """Cached per URL: per-request engine creation rebuilds the pool each call."""
     kwargs = {"future": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     return create_engine(url, **kwargs)
 
 
+@lru_cache(maxsize=8)
+def _session_factory_for(url: str):
+    return sessionmaker(bind=_engine_for(url), autoflush=False, expire_on_commit=False)
+
+
+@lru_cache(maxsize=8)
+def _initialized_url(url: str):  # noqa: ARG001 — cache key only
+    Base.metadata.create_all(_engine_for(url))
+    return True
+
+
+def get_engine(url: str | None = None):
+    return _engine_for(url or DATABASE_URL)
+
+
 def get_session_factory(url: str | None = None):
-    return sessionmaker(bind=get_engine(url), autoflush=False, expire_on_commit=False)
+    return _session_factory_for(url or DATABASE_URL)
 
 
 def init_db(url: str | None = None):
-    engine = get_engine(url)
-    Base.metadata.create_all(engine)
-    return engine
+    """Create tables once per DB url, then reuse the cached engine."""
+    resolved = url or DATABASE_URL
+    _initialized_url(resolved)
+    return _engine_for(resolved)

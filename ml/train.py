@@ -101,9 +101,9 @@ def train_final(df: pd.DataFrame, target: str = "listing_gain_pct",
 
 def backtest_report(df: pd.DataFrame) -> dict:
     """MAE/RMSE/R²/directional accuracy + interval calibration, split by segment."""
-    rep: dict = {"walk_forward": walk_forward(df)}
+    all_wf = walk_forward(df)  # computed once — full df and "all" were duplicates
+    rep: dict = {"walk_forward": all_wf, "all": all_wf}
     for seg in ("mainboard", "sme"):
         sub = df[df["segment"] == seg]
         rep[seg] = walk_forward(sub) if len(sub) >= 20 else {"note": "insufficient data"}
-    rep["all"] = walk_forward(df)
     return rep
